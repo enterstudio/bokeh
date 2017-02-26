@@ -330,8 +330,8 @@ class HasProps(with_metaclass(MetaHasProps, object)):
         '''
         if name in self.properties():
             #logger.debug("Patching attribute %s of %r", attr, patched_obj)
-            prop = self.lookup(name)
-            prop.set_from_json(self, json, models, setter)
+            descriptor = self.lookup(name)
+            descriptor.set_from_json(self, json, models, setter)
         else:
             logger.warn("JSON had attr %r on obj %r, which is a client-only or invalid attribute that shouldn't have been sent", name, self)
 
@@ -529,21 +529,23 @@ class HasProps(with_metaclass(MetaHasProps, object)):
             dict : mapping of property names and values for matching properties
 
         '''
+        themed_keys = set()
         result = dict()
         if include_defaults:
             keys = self.properties()
         else:
             keys = set(self._property_values.keys())
             if self.themed_values():
-                keys |= set(self.themed_values().keys())
+                themed_keys = set(self.themed_values().keys())
+                keys |= themed_keys
 
         for key in keys:
-            prop = self.lookup(key)
-            if not query(prop):
+            descriptor = self.lookup(key)
+            if not query(descriptor):
                 continue
 
-            value = prop.serializable_value(self)
-            if not include_defaults:
+            value = descriptor.serializable_value(self)
+            if not include_defaults and key not in themed_keys:
                 if isinstance(value, PropertyValueContainer) and value._unmodified_default_value:
                     continue
             result[key] = value
@@ -581,9 +583,7 @@ class HasProps(with_metaclass(MetaHasProps, object)):
             None
 
         '''
-        old_dict = None
-        if hasattr(self, '__themed_values__'):
-            old_dict = getattr(self, '__themed_values__')
+        old_dict = getattr(self, '__themed_values__', None)
 
         # if the same theme is set again, it should reuse the
         # same dict
@@ -607,8 +607,17 @@ class HasProps(with_metaclass(MetaHasProps, object)):
 
         # Emit any change notifications that result
         for k, v in old_values.items():
-            prop = self.lookup(k)
-            prop.trigger_if_changed(self, v)
+            descriptor = self.lookup(k)
+            if isinstance(v, PropertyValueContainer) and v._unmodified_default_value:
+                if k in self._property_values[k]:
+                    self._property_values[k]._unregister_owner(self, descriptor)
+                if k in property_values:
+                    self._property_values[k] = descriptor.property.prepare_value(self.__class__, k, property_values[k])
+                else:
+                    self._property_values[k] = descriptor.class_default(self.__class__)
+                self._property_values[k]._unmodified_default_value = True
+                self._property_values[k]._register_owner(self, descriptor)
+            descriptor.trigger_if_changed(self, v)
 
     def unapply_theme(self):
         ''' Remove any themed values and restore defaults.
