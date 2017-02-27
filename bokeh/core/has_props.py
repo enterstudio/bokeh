@@ -609,14 +609,13 @@ class HasProps(with_metaclass(MetaHasProps, object)):
         for k, v in old_values.items():
             descriptor = self.lookup(k)
             if isinstance(v, PropertyValueContainer) and v._unmodified_default_value:
-                if k in self._property_values[k]:
+                if k in self._property_values:
                     self._property_values[k]._unregister_owner(self, descriptor)
+                    del self._property_values[k]
                 if k in property_values:
                     self._property_values[k] = descriptor.property.prepare_value(self.__class__, k, property_values[k])
-                else:
-                    self._property_values[k] = descriptor.class_default(self.__class__)
-                self._property_values[k]._unmodified_default_value = True
-                self._property_values[k]._register_owner(self, descriptor)
+                    self._property_values[k]._unmodified_default_value = True
+                    self._property_values[k]._register_owner(self, descriptor)
             descriptor.trigger_if_changed(self, v)
 
     def unapply_theme(self):
